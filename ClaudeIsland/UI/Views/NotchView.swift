@@ -316,6 +316,18 @@ struct PromptInputView: View {
         inputHeight <= 44
     }
     
+    /// Shortened working directory for display (replaces home with ~)
+    private var shortenedWorkingDirectory: String {
+        let path = AppSettings.effectiveWorkingDirectory
+        let home = NSHomeDirectory()
+        if path == home {
+            return "~"
+        } else if path.hasPrefix(home) {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
+    }
+    
     var body: some View {
         VStack(spacing: 12) {
             // Connection status indicator
@@ -428,6 +440,17 @@ struct PromptInputView: View {
                         removal: .opacity
                     ))
             }
+            
+            // Working directory indicator
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                    .font(.system(size: 10))
+                Text(shortenedWorkingDirectory)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .foregroundColor(.white.opacity(0.25))
             
             // Keyboard hint
             HStack {
