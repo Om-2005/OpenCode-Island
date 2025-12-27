@@ -170,7 +170,9 @@ class NotchViewModel: ObservableObject {
         case .prompt:
             // Base height + dynamic input height for multiline
             let baseHeight: CGFloat = 160
-            let agentPickerHeight: CGFloat = showAgentPicker ? 140 : 0
+            // Agent picker height: ~50px per agent row + padding, capped at 350px
+            let agentCount = showAgentPicker ? CGFloat(availableAgents.count) : 0
+            let agentPickerHeight: CGFloat = showAgentPicker ? min(agentCount * 50 + 16, 350) : 0
             let imagesHeight: CGFloat = attachedImages.isEmpty ? 0 : 80
             return CGSize(
                 width: min(screenRect.width * 0.45, 520),
@@ -197,7 +199,7 @@ class NotchViewModel: ObservableObject {
         case .menu:
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
-                height: 700  // Increased to accommodate model picker dropdown
+                height: 850  // Increased to accommodate expanded dropdowns (agents + models)
             )
         }
     }

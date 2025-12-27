@@ -328,18 +328,43 @@ class OpenCodeService: ObservableObject {
         eventTask?.cancel()
         
         eventTask = Task {
-            do {
-                let events = await client.subscribeToEvents()
-                
-                for try await event in events {
-                    await handleEvent(event)
-                }
-            } catch {
-                // Stream ended or failed
-                if !Task.isCancelled {
-                    await MainActor.run {
-                        connectionState = .error("Event stream disconnected")
+            var retryCount = 0
+            let maxRetries = 5
+            
+            while !Task.isCancelled && retryCount < maxRetries {
+                do {
+                    log("Starting event stream (attempt \(retryCount + 1))")
+                    let events = await client.subscribeToEvents()
+                    retryCount = 0  // Reset on successful connection
+                    
+                    for try await event in events {
+                        await handleEvent(event)
                     }
+                    
+                    // Stream ended normally, try to reconnect
+                    if !Task.isCancelled {
+                        log("Event stream ended, reconnecting...")
+                        try await Task.sleep(for: .seconds(1))
+                    }
+                } catch {
+                    if Task.isCancelled { break }
+                    
+                    retryCount += 1
+                    log("Event stream error (attempt \(retryCount)): \(error)")
+                    
+                    if retryCount < maxRetries {
+                        // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                        let delay = pow(2.0, Double(retryCount - 1))
+                        log("Retrying in \(delay) seconds...")
+                        try? await Task.sleep(for: .seconds(delay))
+                    }
+                }
+            }
+            
+            // Only show error if we exhausted retries and not cancelled
+            if !Task.isCancelled && retryCount >= maxRetries {
+                await MainActor.run {
+                    connectionState = .error("Event stream disconnected")
                 }
             }
         }

@@ -146,10 +146,16 @@ struct NotchView: View {
         .onChange(of: viewModel.status) { oldStatus, newStatus in
             handleStatusChange(from: oldStatus, to: newStatus)
         }
-        .onChange(of: viewModel.contentType) { _, newContentType in
+        .onChange(of: viewModel.contentType) { oldContentType, newContentType in
             // Keep visible when processing starts (even if closed)
             if newContentType == .processing {
                 isVisible = true
+            }
+            // Focus input when switching to prompt mode while opened
+            if newContentType == .prompt && viewModel.status == .opened {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isInputFocused = true
+                }
             }
         }
     }
@@ -250,8 +256,9 @@ struct NotchView: View {
         switch newStatus {
         case .opened, .popping:
             isVisible = true
-            // Focus input when opening via hotkey
-            if viewModel.openReason == .hotkey && viewModel.contentType == .prompt {
+            // Focus input when opening via hotkey or click, as long as we're in prompt mode
+            // This handles both fresh opens and returning to an existing conversation
+            if (viewModel.openReason == .hotkey || viewModel.openReason == .click) && viewModel.contentType == .prompt {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     isInputFocused = true
                 }
@@ -649,21 +656,24 @@ struct AgentPickerView: View {
     }
     
     var body: some View {
-        VStack(spacing: 4) {
-            ForEach(filteredAgents) { agent in
-                AgentRow(agent: agent) {
-                    viewModel.selectAgent(agent)
+        ScrollView {
+            VStack(spacing: 4) {
+                ForEach(filteredAgents) { agent in
+                    AgentRow(agent: agent) {
+                        viewModel.selectAgent(agent)
+                    }
+                }
+                
+                if filteredAgents.isEmpty {
+                    Text("No matching agents")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.4))
+                        .padding(.vertical, 8)
                 }
             }
-            
-            if filteredAgents.isEmpty {
-                Text("No matching agents")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.4))
-                    .padding(.vertical, 8)
-            }
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
+        .frame(maxHeight: min(CGFloat(filteredAgents.count) * 50 + 16, 330))
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color.white.opacity(0.05))
