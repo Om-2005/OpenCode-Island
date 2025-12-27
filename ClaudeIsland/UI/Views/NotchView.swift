@@ -37,6 +37,14 @@ struct NotchView: View {
     }
     
     private var notchSize: CGSize {
+        // When closed but processing, show opened width but only header height
+        if showCompactProcessing {
+            return CGSize(
+                width: viewModel.openedSize.width,
+                height: closedNotchSize.height
+            )
+        }
+        
         switch viewModel.status {
         case .closed, .popping:
             return closedNotchSize
@@ -47,14 +55,19 @@ struct NotchView: View {
     
     // MARK: - Corner Radii
     
+    /// Whether to use opened styling (opened OR compact processing)
+    private var useOpenedStyle: Bool {
+        viewModel.status == .opened || showCompactProcessing
+    }
+    
     private var topCornerRadius: CGFloat {
-        viewModel.status == .opened
+        useOpenedStyle
             ? cornerRadiusInsets.opened.top
             : cornerRadiusInsets.closed.top
     }
     
     private var bottomCornerRadius: CGFloat {
-        viewModel.status == .opened
+        useOpenedStyle
             ? cornerRadiusInsets.opened.bottom
             : cornerRadiusInsets.closed.bottom
     }
@@ -82,7 +95,7 @@ struct NotchView: View {
                     )
                     .padding(
                         .horizontal,
-                        viewModel.status == .opened
+                        useOpenedStyle
                             ? cornerRadiusInsets.opened.top
                             : cornerRadiusInsets.closed.bottom
                     )
@@ -96,17 +109,18 @@ struct NotchView: View {
                             .padding(.horizontal, topCornerRadius)
                     }
                     .shadow(
-                        color: (viewModel.status == .opened || isHovering) ? .black.opacity(0.7) : .clear,
+                        color: (useOpenedStyle || isHovering) ? .black.opacity(0.7) : .clear,
                         radius: 6
                     )
                     .frame(
-                        maxWidth: viewModel.status == .opened ? notchSize.width : nil,
-                        maxHeight: viewModel.status == .opened ? notchSize.height : nil,
+                        maxWidth: useOpenedStyle ? notchSize.width : nil,
+                        maxHeight: useOpenedStyle ? notchSize.height : nil,
                         alignment: .top
                     )
                     .animation(viewModel.status == .opened ? openAnimation : closeAnimation, value: viewModel.status)
                     .animation(openAnimation, value: notchSize)
                     .animation(.spring(response: 0.3, dampingFraction: 0.8), value: viewModel.showAgentPicker)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showCompactProcessing)
                     .contentShape(Rectangle())
                     .onHover { hovering in
                         withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
@@ -170,9 +184,9 @@ struct NotchView: View {
     @ViewBuilder
     private var headerRow: some View {
         HStack(spacing: 0) {
-            // Left side - sparkles icon or processing spinner
-            if viewModel.status == .opened {
-                // When opened: show sparkles or spinner based on processing state
+            // Show full header when opened OR when closed + processing
+            if viewModel.status == .opened || showCompactProcessing {
+                // Left side - sparkles icon or processing spinner
                 if viewModel.contentType == .processing {
                     ProcessingSpinner()
                         .scaleEffect(0.8)
@@ -186,34 +200,26 @@ struct NotchView: View {
                 
                 Spacer()
                 
-                // Menu toggle
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        viewModel.toggleMenu()
+                // Menu toggle (only when opened, not in compact processing mode)
+                if viewModel.status == .opened {
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            viewModel.toggleMenu()
+                        }
+                    } label: {
+                        Image(systemName: viewModel.contentType == .menu ? "xmark" : "gearshape")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white.opacity(0.4))
+                            .frame(width: 22, height: 22)
+                            .contentShape(Rectangle())
                     }
-                } label: {
-                    Image(systemName: viewModel.contentType == .menu ? "xmark" : "gearshape")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white.opacity(0.4))
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             } else {
-                // Closed state - show spinner if processing, otherwise empty notch area
-                if showCompactProcessing {
-                    HStack {
-                        Spacer()
-                        ProcessingSpinner()
-                            .scaleEffect(0.7)
-                        Spacer()
-                    }
+                // Closed state (not processing) - empty notch area
+                Rectangle()
+                    .fill(.clear)
                     .frame(width: closedNotchSize.width - 20)
-                } else {
-                    Rectangle()
-                        .fill(.clear)
-                        .frame(width: closedNotchSize.width - 20)
-                }
             }
         }
         .frame(height: closedNotchSize.height)
