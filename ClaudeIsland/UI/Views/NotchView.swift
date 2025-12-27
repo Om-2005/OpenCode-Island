@@ -317,43 +317,55 @@ struct PromptInputView: View {
                 }
             }
             
-            // Text input
-            HStack(spacing: 10) {
-                TextField("Ask anything... (/ for agents)", text: $viewModel.promptText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14))
-                    .foregroundColor(.white)
-                    .focused(isInputFocused)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.white.opacity(0.08))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-                            )
-                    )
-                    .onHover { hovering in
-                        if hovering {
-                            NSCursor.iBeam.push()
-                        } else {
-                            NSCursor.pop()
+            // Text input (multiline)
+            HStack(alignment: .bottom, spacing: 10) {
+                ZStack(alignment: .topLeading) {
+                    // Placeholder
+                    if viewModel.promptText.isEmpty {
+                        Text("Ask anything... (/ for agents)")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.4))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .allowsHitTesting(false)
+                    }
+                    
+                    // TextEditor for multiline input
+                    TextEditor(text: $viewModel.promptText)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                        .focused(isInputFocused)
+                        .scrollContentBackground(.hidden)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .frame(minHeight: 40, maxHeight: 80)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.08))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                )
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.iBeam.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .onChange(of: viewModel.promptText) { _, text in
+                    // Show agent picker when typing /
+                    if text == "/" {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            viewModel.showAgentPicker = true
                         }
+                    } else if !text.hasPrefix("/") {
+                        viewModel.showAgentPicker = false
                     }
-                    .onSubmit {
-                        viewModel.submitPrompt()
-                    }
-                    .onChange(of: viewModel.promptText) { _, text in
-                        // Show agent picker when typing /
-                        if text == "/" {
-                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                                viewModel.showAgentPicker = true
-                            }
-                        } else if !text.hasPrefix("/") {
-                            viewModel.showAgentPicker = false
-                        }
-                    }
+                }
                 
                 // Submit button
                 Button {
@@ -365,6 +377,7 @@ struct PromptInputView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(viewModel.promptText.isEmpty && viewModel.attachedImages.isEmpty)
+                .padding(.bottom, 6)
             }
             
             // Attached images preview
@@ -730,11 +743,21 @@ struct ResultView: View {
                 
                 Spacer()
                 
-                // Copy button in header
+                // Copy button
                 Button {
                     viewModel.copyResult()
                 } label: {
                     Image(systemName: "doc.on.doc")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                
+                // Expand/collapse button
+                Button {
+                    viewModel.toggleExpanded()
+                } label: {
+                    Image(systemName: viewModel.isResultExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.5))
                 }
@@ -746,7 +769,7 @@ struct ResultView: View {
                 MarkdownText(viewModel.resultText, color: .white.opacity(0.9), fontSize: 13)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 200)
+            .frame(maxHeight: viewModel.isResultExpanded ? 500 : 200)
             
             Divider()
                 .background(Color.white.opacity(0.1))

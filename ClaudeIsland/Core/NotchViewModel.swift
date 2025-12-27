@@ -70,6 +70,7 @@ class NotchViewModel: ObservableObject {
     @Published var resultText: String = ""
     @Published var errorMessage: String?
     @Published var attachedImages: [AttachedImage] = []
+    @Published var isResultExpanded: Bool = false
     
     /// Represents an image attached to the prompt
     struct AttachedImage: Identifiable {
@@ -129,9 +130,13 @@ class NotchViewModel: ObservableObject {
     var openedSize: CGSize {
         switch contentType {
         case .prompt:
+            // Taller height to accommodate multiline input
+            let baseHeight: CGFloat = 160
+            let agentPickerHeight: CGFloat = showAgentPicker ? 140 : 0
+            let imagesHeight: CGFloat = attachedImages.isEmpty ? 0 : 80
             return CGSize(
                 width: min(screenRect.width * 0.45, 520),
-                height: showAgentPicker ? 280 : 140
+                height: baseHeight + agentPickerHeight + imagesHeight
             )
         case .processing:
             // Processing view - compact, just shows "Working..." with cancel
@@ -140,6 +145,13 @@ class NotchViewModel: ObservableObject {
                 height: 70
             )
         case .result:
+            // Expanded mode: much taller and wider
+            if isResultExpanded {
+                return CGSize(
+                    width: min(screenRect.width * 0.7, 800),
+                    height: min(screenRect.height * 0.7, 700)
+                )
+            }
             return CGSize(
                 width: min(screenRect.width * 0.5, 600),
                 height: 450
@@ -442,6 +454,14 @@ class NotchViewModel: ObservableObject {
         resultText = ""
         errorMessage = nil
         contentType = .prompt
+        isResultExpanded = false
+    }
+    
+    /// Toggle expanded view for results
+    func toggleExpanded() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            isResultExpanded.toggle()
+        }
     }
     
     func notchPop() {
