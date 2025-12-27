@@ -36,12 +36,6 @@ struct NotchView: View {
         )
     }
     
-    /// Extra width for the compact processing indicator
-    /// Expands the notch to show spinner + "Processing..." below notch
-    private var compactExpansionWidth: CGFloat {
-        showCompactProcessing ? 80 : 0
-    }
-    
     private var notchSize: CGSize {
         switch viewModel.status {
         case .closed, .popping:
@@ -113,7 +107,6 @@ struct NotchView: View {
                     .animation(viewModel.status == .opened ? openAnimation : closeAnimation, value: viewModel.status)
                     .animation(openAnimation, value: notchSize)
                     .animation(.spring(response: 0.3, dampingFraction: 0.8), value: viewModel.showAgentPicker)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showCompactProcessing)
                     .contentShape(Rectangle())
                     .onHover { hovering in
                         withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
@@ -156,12 +149,6 @@ struct NotchView: View {
             headerRow
                 .frame(height: max(24, closedNotchSize.height))
             
-            // Compact processing indicator - shows BELOW the notch when closed + processing
-            if showCompactProcessing {
-                compactProcessingIndicator
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
-            }
-            
             // Main content only when opened
             if viewModel.status == .opened {
                 contentView
@@ -178,33 +165,24 @@ struct NotchView: View {
         }
     }
     
-    // MARK: - Compact Processing Indicator
-    
-    @ViewBuilder
-    private var compactProcessingIndicator: some View {
-        HStack(spacing: 8) {
-            ProcessingSpinner()
-                .scaleEffect(1.0)
-            Text("Processing...")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.white.opacity(0.8))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(width: closedNotchSize.width + compactExpansionWidth)
-    }
-    
     // MARK: - Header Row
     
     @ViewBuilder
     private var headerRow: some View {
         HStack(spacing: 0) {
-            // Left side - icon when opened
+            // Left side - sparkles icon or processing spinner
             if viewModel.status == .opened {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white.opacity(0.8))
-                    .padding(.leading, 8)
+                // When opened: show sparkles or spinner based on processing state
+                if viewModel.contentType == .processing {
+                    ProcessingSpinner()
+                        .scaleEffect(0.8)
+                        .padding(.leading, 8)
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white.opacity(0.8))
+                        .padding(.leading, 8)
+                }
                 
                 Spacer()
                 
@@ -222,10 +200,20 @@ struct NotchView: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                // Closed state - empty (notch area)
-                Rectangle()
-                    .fill(.clear)
-                    .frame(width: showCompactProcessing ? closedNotchSize.width + compactExpansionWidth : closedNotchSize.width - 20)
+                // Closed state - show spinner if processing, otherwise empty notch area
+                if showCompactProcessing {
+                    HStack {
+                        Spacer()
+                        ProcessingSpinner()
+                            .scaleEffect(0.7)
+                        Spacer()
+                    }
+                    .frame(width: closedNotchSize.width - 20)
+                } else {
+                    Rectangle()
+                        .fill(.clear)
+                        .frame(width: closedNotchSize.width - 20)
+                }
             }
         }
         .frame(height: closedNotchSize.height)
