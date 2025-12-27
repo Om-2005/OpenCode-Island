@@ -548,9 +548,9 @@ class NotchViewModel: ObservableObject {
             parts.append(.text(text))
         }
         
-        // Add image parts
+        // Add image parts (using file type with data URL format)
         for image in attachedImages {
-            parts.append(.image(data: image.base64, mediaType: image.mediaType))
+            parts.append(.image(base64Data: image.base64, mediaType: image.mediaType))
         }
         
         // Capture images for clearing after submit

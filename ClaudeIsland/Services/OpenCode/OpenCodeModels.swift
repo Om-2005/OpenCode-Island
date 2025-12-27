@@ -221,16 +221,18 @@ struct PromptRequest: Codable {
     }
 }
 
-/// A part of a prompt - can be text or an image
+/// A part of a prompt - can be text or a file (image)
+/// OpenCode uses type "file" for images with a data URL
 enum PromptPart: Codable {
     case text(String)
-    case image(data: String, mediaType: String)  // base64 data
+    case file(url: String, mime: String, filename: String?)  // data URL with mime type
     
     enum CodingKeys: String, CodingKey {
         case type
         case text
-        case image
-        case mediaType
+        case url
+        case mime
+        case filename
     }
     
     func encode(to encoder: Encoder) throws {
@@ -239,10 +241,11 @@ enum PromptPart: Codable {
         case .text(let text):
             try container.encode("text", forKey: .type)
             try container.encode(text, forKey: .text)
-        case .image(let data, let mediaType):
-            try container.encode("image", forKey: .type)
-            try container.encode(data, forKey: .image)
-            try container.encode(mediaType, forKey: .mediaType)
+        case .file(let url, let mime, let filename):
+            try container.encode("file", forKey: .type)
+            try container.encode(url, forKey: .url)
+            try container.encode(mime, forKey: .mime)
+            try container.encodeIfPresent(filename, forKey: .filename)
         }
     }
     
@@ -253,15 +256,27 @@ enum PromptPart: Codable {
         case "text":
             let text = try container.decode(String.self, forKey: .text)
             self = .text(text)
-        case "image":
-            let data = try container.decode(String.self, forKey: .image)
-            let mediaType = try container.decode(String.self, forKey: .mediaType)
-            self = .image(data: data, mediaType: mediaType)
+        case "file":
+            let url = try container.decode(String.self, forKey: .url)
+            let mime = try container.decode(String.self, forKey: .mime)
+            let filename = try container.decodeIfPresent(String.self, forKey: .filename)
+            self = .file(url: url, mime: mime, filename: filename)
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown part type: \(type)")
             )
         }
+    }
+    
+    /// Create an image part from base64 data
+    /// - Parameters:
+    ///   - base64Data: The base64 encoded image data (without the data URL prefix)
+    ///   - mediaType: The MIME type (e.g., "image/png", "image/jpeg")
+    ///   - filename: Optional filename
+    /// - Returns: A file part with proper data URL format
+    static func image(base64Data: String, mediaType: String, filename: String? = nil) -> PromptPart {
+        let dataURL = "data:\(mediaType);base64,\(base64Data)"
+        return .file(url: dataURL, mime: mediaType, filename: filename)
     }
 }
 
