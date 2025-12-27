@@ -126,17 +126,28 @@ class NotchViewModel: ObservableObject {
     var screenRect: CGRect { geometry.screenRect }
     var windowHeight: CGFloat { geometry.windowHeight }
     
+    /// Calculate extra height needed for multiline input
+    private var inputExtraHeight: CGFloat {
+        let lineCount = max(1, promptText.components(separatedBy: "\n").count)
+        if lineCount <= 1 {
+            return 0
+        }
+        // Each additional line adds ~20px, max 4 extra lines (120px total input height)
+        let extraLines = min(lineCount - 1, 4)
+        return CGFloat(extraLines) * 20
+    }
+    
     /// Dynamic opened size based on content type
     var openedSize: CGSize {
         switch contentType {
         case .prompt:
-            // Taller height to accommodate multiline input
+            // Base height + dynamic input height for multiline
             let baseHeight: CGFloat = 160
             let agentPickerHeight: CGFloat = showAgentPicker ? 140 : 0
             let imagesHeight: CGFloat = attachedImages.isEmpty ? 0 : 80
             return CGSize(
                 width: min(screenRect.width * 0.45, 520),
-                height: baseHeight + agentPickerHeight + imagesHeight
+                height: baseHeight + agentPickerHeight + imagesHeight + inputExtraHeight
             )
         case .processing:
             // Processing view - compact, just shows "Working..." with cancel

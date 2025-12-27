@@ -281,6 +281,24 @@ struct PromptInputView: View {
     @ObservedObject var viewModel: NotchViewModel
     var isInputFocused: FocusState<Bool>.Binding
     
+    /// Calculate dynamic height based on number of lines
+    private var inputHeight: CGFloat {
+        let lineHeight: CGFloat = 20
+        let minHeight: CGFloat = 44
+        let maxHeight: CGFloat = 120
+        let padding: CGFloat = 16
+        
+        let lineCount = max(1, viewModel.promptText.components(separatedBy: "\n").count)
+        let calculatedHeight = CGFloat(lineCount) * lineHeight + padding
+        
+        return min(max(calculatedHeight, minHeight), maxHeight)
+    }
+    
+    /// Whether content is single line (for centering)
+    private var isSingleLine: Bool {
+        !viewModel.promptText.contains("\n")
+    }
+    
     var body: some View {
         VStack(spacing: 12) {
             // Connection status indicator
@@ -318,14 +336,15 @@ struct PromptInputView: View {
             }
             
             // Text input (multiline)
-            HStack(alignment: .center, spacing: 10) {
-                ZStack(alignment: .leading) {
+            HStack(alignment: .bottom, spacing: 10) {
+                ZStack(alignment: isSingleLine ? .leading : .topLeading) {
                     // Placeholder - vertically centered
                     if viewModel.promptText.isEmpty {
                         Text("Ask anything... (/ for agents)")
                             .font(.system(size: 14))
                             .foregroundColor(.white.opacity(0.4))
                             .padding(.leading, 14)
+                            .frame(height: 44)
                             .allowsHitTesting(false)
                     }
                     
@@ -336,8 +355,8 @@ struct PromptInputView: View {
                         .focused(isInputFocused)
                         .scrollContentBackground(.hidden)
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 10)
-                        .frame(height: 44)
+                        .padding(.vertical, isSingleLine ? 12 : 8)
+                        .frame(height: inputHeight)
                 }
                 .background(
                     RoundedRectangle(cornerRadius: 12)
@@ -347,6 +366,7 @@ struct PromptInputView: View {
                                 .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
                         )
                 )
+                .animation(.easeOut(duration: 0.15), value: inputHeight)
                 .onHover { hovering in
                     if hovering {
                         NSCursor.iBeam.push()
@@ -375,6 +395,7 @@ struct PromptInputView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(viewModel.promptText.isEmpty && viewModel.attachedImages.isEmpty)
+                .padding(.bottom, 8)
             }
             
             // Attached images preview
