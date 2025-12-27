@@ -126,15 +126,35 @@ class NotchViewModel: ObservableObject {
     var screenRect: CGRect { geometry.screenRect }
     var windowHeight: CGFloat { geometry.windowHeight }
     
-    /// Calculate extra height needed for multiline input
+    /// Calculate extra height needed for multiline input (including word wrap)
     private var inputExtraHeight: CGFloat {
-        let lineCount = max(1, promptText.components(separatedBy: "\n").count)
-        if lineCount <= 1 {
+        let inputWidth: CGFloat = 420
+        let horizontalPadding: CGFloat = 24
+        let minHeight: CGFloat = 44
+        let maxHeight: CGFloat = 120
+        let verticalPadding: CGFloat = 24
+        
+        guard !promptText.isEmpty else {
             return 0
         }
-        // Each additional line adds ~20px, max 4 extra lines (120px total input height)
-        let extraLines = min(lineCount - 1, 4)
-        return CGFloat(extraLines) * 20
+        
+        // Measure text height with word wrap
+        let font = NSFont.systemFont(ofSize: 14)
+        let textWidth = inputWidth - horizontalPadding
+        let attributedString = NSAttributedString(
+            string: promptText,
+            attributes: [.font: font]
+        )
+        let boundingRect = attributedString.boundingRect(
+            with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        
+        let calculatedHeight = ceil(boundingRect.height) + verticalPadding
+        let actualInputHeight = min(max(calculatedHeight, minHeight), maxHeight)
+        
+        // Return extra height beyond the minimum
+        return max(0, actualInputHeight - minHeight)
     }
     
     /// Dynamic opened size based on content type

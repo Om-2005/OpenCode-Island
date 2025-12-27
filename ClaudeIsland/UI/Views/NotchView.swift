@@ -281,22 +281,39 @@ struct PromptInputView: View {
     @ObservedObject var viewModel: NotchViewModel
     var isInputFocused: FocusState<Bool>.Binding
     
-    /// Calculate dynamic height based on number of lines
+    /// Input box width (for text measurement)
+    private let inputWidth: CGFloat = 420
+    
+    /// Calculate dynamic height based on actual rendered text (including word wrap)
     private var inputHeight: CGFloat {
-        let lineHeight: CGFloat = 20
         let minHeight: CGFloat = 44
         let maxHeight: CGFloat = 120
-        let padding: CGFloat = 16
+        let horizontalPadding: CGFloat = 24 // padding inside the text editor
+        let verticalPadding: CGFloat = 24
         
-        let lineCount = max(1, viewModel.promptText.components(separatedBy: "\n").count)
-        let calculatedHeight = CGFloat(lineCount) * lineHeight + padding
+        guard !viewModel.promptText.isEmpty else {
+            return minHeight
+        }
         
+        // Measure text height with word wrap
+        let font = NSFont.systemFont(ofSize: 14)
+        let textWidth = inputWidth - horizontalPadding
+        let attributedString = NSAttributedString(
+            string: viewModel.promptText,
+            attributes: [.font: font]
+        )
+        let boundingRect = attributedString.boundingRect(
+            with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        
+        let calculatedHeight = ceil(boundingRect.height) + verticalPadding
         return min(max(calculatedHeight, minHeight), maxHeight)
     }
     
-    /// Whether content is single line (for centering)
+    /// Whether content fits in single line (for centering)
     private var isSingleLine: Bool {
-        !viewModel.promptText.contains("\n")
+        inputHeight <= 44
     }
     
     var body: some View {
