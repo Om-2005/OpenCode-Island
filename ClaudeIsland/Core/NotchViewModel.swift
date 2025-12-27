@@ -70,6 +70,13 @@ class NotchViewModel: ObservableObject {
     @Published var resultText: String = ""
     @Published var errorMessage: String?
     @Published var attachedImages: [AttachedImage] = []
+    
+    /// Tracks if we have a pending retry (error occurred in background)
+    @Published var hasPendingRetry: Bool = false
+    
+    /// The prompt parts to retry if there's a pending retry
+    private var pendingRetryParts: [PromptPart] = []
+    private var pendingRetryAgentID: String?
     @Published var isResultExpanded: Bool = false
     
     /// Represents an image attached to the prompt
@@ -462,6 +469,13 @@ class NotchViewModel: ObservableObject {
             return
         }
         
+        // Check for pending retry (background error that should auto-retry)
+        if hasPendingRetry && (reason == .hotkey || reason == .click) {
+            log("Notch opened with pending retry, auto-retrying...")
+            executePendingRetry()
+            return
+        }
+        
         // Switch to prompt view when opening, but preserve text and images
         if reason == .hotkey || reason == .click {
             contentType = .prompt
@@ -488,6 +502,11 @@ class NotchViewModel: ObservableObject {
         Task {
             await openCodeService.abort()
         }
+        
+        // Clear pending retry
+        hasPendingRetry = false
+        pendingRetryParts = []
+        pendingRetryAgentID = nil
         
         notchClose()
         promptText = ""
@@ -585,8 +604,75 @@ class NotchViewModel: ObservableObject {
             } catch {
                 guard !Task.isCancelled else { return }
                 
-                self.errorMessage = (error as? OpenCodeError)?.shortDescription ?? error.localizedDescription
+                let openCodeError = error as? OpenCodeError
+                self.errorMessage = openCodeError?.shortDescription ?? error.localizedDescription
                 self.contentType = .prompt
+                
+                // If error is retryable and notch is closed (background error),
+                // set up pending retry so it auto-retries when summoned
+                if self.status == .closed {
+                    let isRetryable = openCodeError?.isRetryable ?? false
+                    if isRetryable {
+                        self.hasPendingRetry = true
+                        self.pendingRetryParts = parts
+                        self.pendingRetryAgentID = self.selectedAgent?.id
+                        self.log("Background error occurred, will auto-retry when summoned")
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Execute pending retry (called when notch is summoned after background error)
+    private func executePendingRetry() {
+        guard hasPendingRetry, !pendingRetryParts.isEmpty else { return }
+        
+        log("Auto-retrying after background error...")
+        
+        // Clear retry state
+        hasPendingRetry = false
+        let parts = pendingRetryParts
+        let agentID = pendingRetryAgentID
+        pendingRetryParts = []
+        pendingRetryAgentID = nil
+        
+        // Clear error message
+        errorMessage = nil
+        
+        // Transition to processing
+        contentType = .processing
+        resultText = ""
+        
+        // Submit to OpenCode
+        processingTask = Task {
+            do {
+                let result = try await openCodeService.submitPrompt(
+                    parts: parts,
+                    agentID: agentID
+                )
+                
+                guard !Task.isCancelled else { return }
+                
+                self.resultText = result
+                self.contentType = .result
+                
+                // Clear prompt for next input
+                self.promptText = ""
+                self.attachedImages = []
+                
+            } catch {
+                guard !Task.isCancelled else { return }
+                
+                let openCodeError = error as? OpenCodeError
+                self.errorMessage = openCodeError?.shortDescription ?? error.localizedDescription
+                self.contentType = .prompt
+                
+                // If still retryable, keep the retry pending
+                if openCodeError?.isRetryable ?? false {
+                    self.hasPendingRetry = true
+                    self.pendingRetryParts = parts
+                    self.pendingRetryAgentID = agentID
+                }
             }
         }
     }

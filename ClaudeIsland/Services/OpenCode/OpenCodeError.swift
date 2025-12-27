@@ -129,7 +129,7 @@ enum OpenCodeError: LocalizedError {
     /// Whether this error is likely transient and retrying might help
     var isRetryable: Bool {
         switch self {
-        case .serverNotRunning, .networkError, .timeout:
+        case .serverNotRunning, .networkError, .timeout, .streamError:
             return true
         case .httpError(let statusCode, _):
             return statusCode >= 500
