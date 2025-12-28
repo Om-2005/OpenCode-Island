@@ -104,19 +104,207 @@ struct CreateSessionRequest: Codable {
 
 // MARK: - Messages
 
-struct MessagePart: Codable {
-    let type: PartType
-    let text: String?
-    let toolInvocationID: String?
-    let toolName: String?
-    let state: String?
+/// Tool state for tool parts
+struct ToolState: Codable {
+    let status: String  // "pending", "running", "completed", "error"
+    let input: [String: AnyCodable]?
+    let output: String?
+    let title: String?
+    let error: String?
+    let metadata: [String: AnyCodable]?
+    let time: ToolTime?
+    let attachments: [FilePart]?
+    
+    struct ToolTime: Codable {
+        let start: Int64?
+        let end: Int64?
+        let compacted: Int64?
+    }
+    
+    var isRunning: Bool { status == "running" || status == "pending" }
+    var isCompleted: Bool { status == "completed" }
+    var isError: Bool { status == "error" }
+}
+
+/// File part for attachments
+struct FilePart: Codable {
     let id: String?
+    let sessionID: String?
+    let messageID: String?
+    let type: String?
+    let mime: String?
+    let filename: String?
+    let url: String?
+}
+
+/// A flexible wrapper for JSON values that may be any type
+struct AnyCodable: Codable {
+    let value: Any
+    
+    init(_ value: Any) {
+        self.value = value
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let bool = try? container.decode(Bool.self) {
+            value = bool
+        } else if let int = try? container.decode(Int.self) {
+            value = int
+        } else if let double = try? container.decode(Double.self) {
+            value = double
+        } else if let string = try? container.decode(String.self) {
+            value = string
+        } else if let array = try? container.decode([AnyCodable].self) {
+            value = array.map { $0.value }
+        } else if let dict = try? container.decode([String: AnyCodable].self) {
+            value = dict.mapValues { $0.value }
+        } else {
+            value = NSNull()
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch value {
+        case let bool as Bool:
+            try container.encode(bool)
+        case let int as Int:
+            try container.encode(int)
+        case let double as Double:
+            try container.encode(double)
+        case let string as String:
+            try container.encode(string)
+        case let array as [Any]:
+            try container.encode(array.map { AnyCodable($0) })
+        case let dict as [String: Any]:
+            try container.encode(dict.mapValues { AnyCodable($0) })
+        default:
+            try container.encodeNil()
+        }
+    }
+    
+    /// Get the value as a string representation for display
+    var stringValue: String {
+        switch value {
+        case let string as String:
+            return string
+        case let int as Int:
+            return String(int)
+        case let double as Double:
+            return String(double)
+        case let bool as Bool:
+            return bool ? "true" : "false"
+        case let dict as [String: Any]:
+            // Try to extract common keys for tools
+            if let path = dict["path"] as? String {
+                return path
+            } else if let pattern = dict["pattern"] as? String {
+                return pattern
+            } else if let command = dict["command"] as? String {
+                return command
+            } else if let query = dict["query"] as? String {
+                return query
+            }
+            // Fallback to JSON representation
+            if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
+               let str = String(data: data, encoding: .utf8) {
+                return str
+            }
+            return String(describing: dict)
+        default:
+            return String(describing: value)
+        }
+    }
+}
+
+/// Message part - matches the SDK's Part union type
+/// Handles all part types: text, tool, reasoning, file, step-start, step-finish, etc.
+struct MessagePart: Codable, Identifiable {
+    let id: String
+    let sessionID: String?
+    let messageID: String?
+    let type: PartType
+    
+    // Text part fields
+    let text: String?
+    let synthetic: Bool?
+    let ignored: Bool?
+    
+    // Tool part fields
+    let callID: String?
+    let tool: String?
+    let state: ToolState?
+    
+    // Reasoning part fields (uses text field)
+    
+    // File part fields
+    let mime: String?
+    let filename: String?
+    let url: String?
+    
+    // Step-start/step-finish fields
+    let snapshot: String?
+    let reason: String?
+    let cost: Double?
+    let tokens: PartTokens?
+    
+    // Agent part fields
+    let name: String?
+    
+    // Subtask part fields
+    let prompt: String?
+    let description: String?
+    let agent: String?
+    
+    // Retry part fields
+    let attempt: Int?
+    let error: PartError?
+    
+    // Time fields
+    let time: PartTime?
+    
+    struct PartTime: Codable {
+        let start: Int64?
+        let end: Int64?
+        let created: Int64?
+    }
+    
+    struct PartTokens: Codable {
+        let input: Int?
+        let output: Int?
+        let reasoning: Int?
+        let cache: TokenCache?
+        
+        struct TokenCache: Codable {
+            let read: Int?
+            let write: Int?
+        }
+    }
+    
+    struct PartError: Codable {
+        let name: String?
+        let data: ErrorData?
+        
+        struct ErrorData: Codable {
+            let message: String?
+            let statusCode: Int?
+        }
+    }
     
     enum PartType: String, Codable {
         case text
-        case toolInvocation = "tool-invocation"
-        case toolResult = "tool-result"
+        case tool
+        case reasoning
+        case file
         case stepStart = "step-start"
+        case stepFinish = "step-finish"
+        case snapshot
+        case patch
+        case agent
+        case subtask
+        case retry
+        case compaction
         case unknown
         
         init(from decoder: Decoder) throws {
@@ -126,7 +314,63 @@ struct MessagePart: Codable {
         }
     }
     
-    // No CodingKeys needed - server uses camelCase which Swift handles by default
+    /// Display name for tool
+    var toolDisplayName: String {
+        guard let toolName = tool else { return "Tool" }
+        return toolName
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
+    
+    /// Icon for tool type
+    var toolIcon: String {
+        guard let toolName = tool else { return "wrench" }
+        switch toolName.lowercased() {
+        case "read", "read_file": return "doc.text"
+        case "write", "write_file": return "doc.text.fill"
+        case "edit", "edit_file": return "pencil"
+        case "bash", "shell": return "terminal"
+        case "glob", "find", "find_files": return "magnifyingglass"
+        case "grep", "search", "find_text": return "text.magnifyingglass"
+        case "list_dir", "ls": return "folder"
+        case "task", "agent": return "person.2"
+        case "web_search", "websearch", "fetch", "webfetch": return "globe"
+        case "todowrite", "todoread": return "checklist"
+        default: return "wrench"
+        }
+    }
+    
+    /// Tool input summary for display
+    var toolInputSummary: String? {
+        guard let input = state?.input else { return nil }
+        
+        // Try to extract the most relevant field for each tool type
+        if let path = input["filePath"]?.stringValue ?? input["path"]?.stringValue {
+            return path
+        }
+        if let pattern = input["pattern"]?.stringValue {
+            return pattern
+        }
+        if let command = input["command"]?.stringValue {
+            return command
+        }
+        if let query = input["query"]?.stringValue {
+            return query
+        }
+        if let description = input["description"]?.stringValue {
+            return description
+        }
+        
+        // For other tools, try to get any string value
+        for (_, value) in input {
+            let str = value.stringValue
+            if !str.isEmpty && str != "null" {
+                return str
+            }
+        }
+        
+        return nil
+    }
 }
 
 struct MessageTime: Codable {
@@ -373,8 +617,11 @@ enum OpenCodeEventType: String {
     case sessionUpdated = "session.updated"
     case messageCreated = "message.created"
     case messageUpdated = "message.updated"
-    case partUpdated = "part.updated"
+    case messagePartUpdated = "message.part.updated"
+    case messagePartRemoved = "message.part.removed"
     case sessionStatus = "session.status"
+    case sessionIdle = "session.idle"
+    case sessionError = "session.error"
     case unknown
     
     init(rawValue: String) {
@@ -384,23 +631,41 @@ enum OpenCodeEventType: String {
         case "session.updated": self = .sessionUpdated
         case "message.created": self = .messageCreated
         case "message.updated": self = .messageUpdated
-        case "part.updated": self = .partUpdated
+        case "message.part.updated": self = .messagePartUpdated
+        case "message.part.removed": self = .messagePartRemoved
         case "session.status": self = .sessionStatus
+        case "session.idle": self = .sessionIdle
+        case "session.error": self = .sessionError
         default: self = .unknown
         }
     }
 }
 
-/// Event payload for message part updates (streaming text)
-struct PartUpdatedEvent: Codable {
+/// Event payload for message part updates (streaming text and tool updates)
+struct MessagePartUpdatedEvent: Codable {
     let properties: PartProperties
     
     struct PartProperties: Codable {
-        let sessionID: String
-        let messageID: String
         let part: MessagePart
-        // Server uses camelCase, no CodingKeys needed
+        let delta: String?  // For streaming text updates, this contains the new text chunk
     }
+}
+
+/// Event payload for message updates
+struct MessageUpdatedEvent: Codable {
+    let properties: MessageProperties
+    
+    struct MessageProperties: Codable {
+        let info: Message
+    }
+}
+
+/// Session status type - matches SDK
+struct SessionStatusType: Codable {
+    let type: String  // "idle", "busy", "retry"
+    let attempt: Int?
+    let message: String?
+    let next: Int?
 }
 
 /// Event payload for session status updates
@@ -409,7 +674,34 @@ struct SessionStatusEvent: Codable {
     
     struct StatusProperties: Codable {
         let sessionID: String
-        let status: String  // "pending", "running", "completed", etc.
-        // Server uses camelCase, no CodingKeys needed
+        let status: SessionStatusType
+    }
+}
+
+/// Event payload for session idle
+struct SessionIdleEvent: Codable {
+    let properties: IdleProperties
+    
+    struct IdleProperties: Codable {
+        let sessionID: String
+    }
+}
+
+/// Event payload for session error
+struct SessionErrorEvent: Codable {
+    let properties: ErrorProperties
+    
+    struct ErrorProperties: Codable {
+        let sessionID: String?
+        let error: SessionError?
+        
+        struct SessionError: Codable {
+            let name: String?
+            let data: ErrorData?
+            
+            struct ErrorData: Codable {
+                let message: String?
+            }
+        }
     }
 }

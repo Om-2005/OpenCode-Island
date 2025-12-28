@@ -7,6 +7,7 @@
 
 import AppKit
 import Combine
+import ScreenCaptureKit
 import SwiftUI
 
 // MARK: - NSImage Extension
@@ -193,16 +194,16 @@ class NotchViewModel: ObservableObject {
                 height: 70
             )
         case .result:
-            // Expanded mode: much taller and wider
+            // Expanded mode: much taller and wider for full conversation history
             if isResultExpanded {
                 return CGSize(
-                    width: min(screenRect.width * 0.7, 800),
-                    height: min(screenRect.height * 0.7, 700)
+                    width: min(screenRect.width * 0.75, 900),
+                    height: min(screenRect.height * 0.75, 800)
                 )
             }
             return CGSize(
-                width: min(screenRect.width * 0.5, 600),
-                height: 450
+                width: min(screenRect.width * 0.55, 650),
+                height: 500
             )
         case .menu:
             return CGSize(
@@ -359,6 +360,14 @@ class NotchViewModel: ObservableObject {
     private func handleKeyDown(_ event: NSEvent) {
         // Only handle keys when opened
         guard status == .opened else { return }
+        
+        // Cmd+S - capture screenshot (keyCode 1 = S)
+        if event.keyCode == 1 && event.modifierFlags.contains(.command) {
+            if contentType == .prompt {
+                captureScreenshot()
+                return
+            }
+        }
         
         // Cmd+V - paste image (keyCode 9 = V)
         if event.keyCode == 9 && event.modifierFlags.contains(.command) {
@@ -628,6 +637,9 @@ class NotchViewModel: ObservableObject {
                 self.resultText = result
                 self.contentType = .result
                 
+                // Fetch full conversation history for display
+                await self.openCodeService.fetchConversationHistory()
+                
                 // Auto-open to show the result
                 if self.status == .closed {
                     self.notchOpen(reason: .notification)
@@ -762,6 +774,87 @@ class NotchViewModel: ObservableObject {
     /// Clear all attached images
     func clearImages() {
         attachedImages.removeAll()
+    }
+    
+    /// Capture a screenshot of the screen the app is on and attach it
+    func captureScreenshot() {
+        log("Capturing screenshot...")
+        
+        // Find the screen that contains the notch
+        guard let screen = NSScreen.screens.first(where: { screen in
+            screen.frame.intersects(CGRect(
+                x: screenRect.midX - 1,
+                y: screenRect.midY - 1,
+                width: 2,
+                height: 2
+            ))
+        }) ?? NSScreen.main else {
+            log("Could not determine screen for screenshot")
+            return
+        }
+        
+        // Get the display ID for this screen
+        guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
+            log("Could not get display ID")
+            return
+        }
+        
+        // Use ScreenCaptureKit for macOS 15+
+        Task {
+            await captureScreenWithScreenCaptureKit(displayID: displayID)
+        }
+    }
+    
+    /// Capture screen using ScreenCaptureKit (macOS 12.3+)
+    private func captureScreenWithScreenCaptureKit(displayID: CGDirectDisplayID) async {
+        do {
+            // Get shareable content
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            
+            // Find the display matching our displayID
+            guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+                log("Could not find display for screenshot")
+                return
+            }
+            
+            // Create a filter that captures the entire display (excluding our own window)
+            let excludedApps = content.applications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
+            let filter = SCContentFilter(display: display, excludingApplications: excludedApps, exceptingWindows: [])
+            
+            // Configure the screenshot
+            let config = SCStreamConfiguration()
+            config.width = Int(display.width) * 2  // Retina
+            config.height = Int(display.height) * 2
+            config.pixelFormat = kCVPixelFormatType_32BGRA
+            config.scalesToFit = false
+            config.showsCursor = false
+            
+            // Capture the screenshot
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+            
+            // Convert CGImage to NSImage
+            let size = NSSize(width: image.width / 2, height: image.height / 2)  // Adjust for retina
+            let nsImage = NSImage(cgImage: image, size: size)
+            
+            // Convert to PNG data
+            guard let pngData = nsImage.pngData() else {
+                log("Failed to convert screenshot to PNG")
+                return
+            }
+            
+            // Create attached image on main thread
+            let attachedImage = AttachedImage(
+                image: nsImage,
+                data: pngData,
+                mediaType: "image/png"
+            )
+            
+            attachedImages.append(attachedImage)
+            log("Screenshot captured and attached (\(pngData.count / 1024) KB)")
+            
+        } catch {
+            log("Screenshot capture failed: \(error.localizedDescription)")
+        }
     }
     
     /// Start a new session (triggered by /new command)

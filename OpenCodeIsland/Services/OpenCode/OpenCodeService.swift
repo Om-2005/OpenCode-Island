@@ -42,6 +42,7 @@ class OpenCodeService: ObservableObject {
     @Published private(set) var serverVersion: String?
     @Published private(set) var isProcessing: Bool = false
     @Published private(set) var streamingText: String = ""
+    @Published private(set) var conversationHistory: [MessageWithParts] = []
     
     // MARK: - Delegate
     
@@ -297,6 +298,10 @@ class OpenCodeService: ObservableObject {
             
             isProcessing = false
             streamingText = resultText
+            
+            // Fetch full conversation history after completion
+            await fetchConversationHistory()
+            
             delegate?.openCodeService(self, didCompleteWithResult: resultText)
             
             return resultText
@@ -375,17 +380,39 @@ class OpenCodeService: ObservableObject {
         let eventType = OpenCodeEventType(rawValue: event.type)
         
         switch eventType {
-        case .partUpdated:
-            // Handle streaming text updates
-            if let partEvent = try? event.decode(PartUpdatedEvent.self) {
+        case .messagePartUpdated:
+            // Handle streaming text and tool updates
+            if let partEvent = try? event.decode(MessagePartUpdatedEvent.self) {
+                let part = partEvent.properties.part
+                
                 // Check if this is for our active session
-                if partEvent.properties.sessionID == activeSessionID {
-                    if let text = partEvent.properties.part.text {
-                        await MainActor.run {
-                            self.streamingText += text
-                            self.delegate?.openCodeService(self, didReceiveStreamingText: self.streamingText)
-                        }
+                guard part.sessionID == activeSessionID else { return }
+                
+                // Handle streaming text deltas
+                if part.type == .text, let delta = partEvent.properties.delta {
+                    await MainActor.run {
+                        self.streamingText += delta
+                        self.delegate?.openCodeService(self, didReceiveStreamingText: self.streamingText)
                     }
+                }
+                
+                // Update the part in conversation history for live tool status updates
+                await updatePartInHistory(part)
+            }
+            
+        case .messageUpdated:
+            // Handle message completion
+            if let msgEvent = try? event.decode(MessageUpdatedEvent.self) {
+                let message = msgEvent.properties.info
+                guard message.sessionID == activeSessionID else { return }
+                
+                // If message has a finish reason, processing is done
+                if message.finish != nil {
+                    await MainActor.run {
+                        self.isProcessing = false
+                    }
+                    // Refresh conversation history to get final state
+                    await fetchConversationHistory()
                 }
             }
             
@@ -393,18 +420,70 @@ class OpenCodeService: ObservableObject {
             // Handle session status changes
             if let statusEvent = try? event.decode(SessionStatusEvent.self) {
                 if statusEvent.properties.sessionID == activeSessionID {
-                    let status = statusEvent.properties.status
-                    if status == "completed" || status == "error" {
+                    let statusType = statusEvent.properties.status.type
+                    if statusType == "idle" {
                         await MainActor.run {
                             self.isProcessing = false
                         }
+                        // Fetch final conversation history
+                        await fetchConversationHistory()
+                    }
+                }
+            }
+            
+        case .sessionIdle:
+            // Handle session becoming idle
+            if let idleEvent = try? event.decode(SessionIdleEvent.self) {
+                if idleEvent.properties.sessionID == activeSessionID {
+                    await MainActor.run {
+                        self.isProcessing = false
+                    }
+                    // Fetch final conversation history
+                    await fetchConversationHistory()
+                }
+            }
+            
+        case .sessionError:
+            // Handle session errors
+            if let errorEvent = try? event.decode(SessionErrorEvent.self) {
+                if errorEvent.properties.sessionID == activeSessionID {
+                    let errorMessage = errorEvent.properties.error?.data?.message ?? "Unknown error"
+                    await MainActor.run {
+                        self.isProcessing = false
+                        self.delegate?.openCodeService(self, didFailWithError: OpenCodeError.unknown(errorMessage))
                     }
                 }
             }
             
         default:
-            // Ignore other events for now
+            // Ignore other events
             break
+        }
+    }
+    
+    /// Update a part in the conversation history (for live tool status updates)
+    private func updatePartInHistory(_ updatedPart: MessagePart) async {
+        await MainActor.run {
+            // Find the message containing this part
+            guard let messageIndex = conversationHistory.firstIndex(where: { $0.info.id == updatedPart.messageID }) else {
+                return
+            }
+            
+            // Find and update the part
+            var message = conversationHistory[messageIndex]
+            if let partIndex = message.parts.firstIndex(where: { $0.id == updatedPart.id }) {
+                // Update existing part
+                var parts = message.parts
+                parts[partIndex] = updatedPart
+                message = MessageWithParts(info: message.info, parts: parts)
+                conversationHistory[messageIndex] = message
+            } else {
+                // Add new part
+                var parts = message.parts
+                parts.append(updatedPart)
+                message = MessageWithParts(info: message.info, parts: parts)
+                conversationHistory[messageIndex] = message
+            }
         }
     }
     
@@ -414,6 +493,31 @@ class OpenCodeService: ObservableObject {
             .filter { $0.type == .text }
             .compactMap { $0.text }
             .joined(separator: "\n")
+    }
+    
+    // MARK: - Conversation History
+    
+    /// Fetch the conversation history for the current session
+    func fetchConversationHistory() async {
+        guard let sessionID = activeSessionID else {
+            log("No active session for fetching history")
+            return
+        }
+        
+        do {
+            let messages = try await client.listMessages(sessionID: sessionID)
+            await MainActor.run {
+                self.conversationHistory = messages
+            }
+            log("Fetched \(messages.count) messages from history")
+        } catch {
+            log("Failed to fetch conversation history: \(error)")
+        }
+    }
+    
+    /// Clear conversation history (e.g., when starting new session)
+    func clearConversationHistory() {
+        conversationHistory = []
     }
 }
 

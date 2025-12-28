@@ -847,12 +847,34 @@ struct ResultView: View {
                 .buttonStyle(.plain)
             }
             
-            // Result content
-            ScrollView {
-                MarkdownText(viewModel.resultText, color: .white.opacity(0.9), fontSize: 13)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            // Conversation content with full history
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Show conversation history
+                        ForEach(Array(viewModel.openCodeService.conversationHistory.enumerated()), id: \.element.info.id) { index, message in
+                            ConversationMessageView(message: message)
+                        }
+                        
+                        // If no history loaded yet, just show the result text
+                        if viewModel.openCodeService.conversationHistory.isEmpty && !viewModel.resultText.isEmpty {
+                            MarkdownText(viewModel.resultText, color: .white.opacity(0.9), fontSize: 13)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .id("bottom")
+                }
+                .frame(maxHeight: viewModel.isResultExpanded ? 550 : 280)
+                .onAppear {
+                    // Scroll to bottom on appear
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        withAnimation {
+                            proxy.scrollTo("bottom", anchor: .bottom)
+                        }
+                    }
+                }
             }
-            .frame(maxHeight: viewModel.isResultExpanded ? 500 : 200)
             
             Divider()
                 .background(Color.white.opacity(0.1))
@@ -898,7 +920,7 @@ struct ResultView: View {
             }
             
             // Keyboard hint
-            Text("Enter to send \u{2022} Esc to dismiss")
+            Text("Enter to send \u{2022} Esc to dismiss \u{2022} \u{2318}S screenshot")
                 .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.3))
         }
@@ -911,6 +933,499 @@ struct ResultView: View {
         viewModel.promptText = followUpText
         followUpText = ""
         viewModel.submitPrompt()
+    }
+}
+
+// MARK: - Conversation Message View
+
+struct ConversationMessageView: View {
+    let message: MessageWithParts
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Message role indicator
+            HStack(spacing: 6) {
+                Image(systemName: message.info.role == .user ? "person.fill" : "sparkles")
+                    .font(.system(size: 10))
+                    .foregroundColor(message.info.role == .user ? .blue : .purple)
+                
+                Text(message.info.role == .user ? "You" : "Assistant")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+                
+                if let agent = message.info.agent, message.info.role == .assistant {
+                    Text("(\(agent))")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+                
+                Spacer()
+            }
+            
+            // Message parts
+            ForEach(message.parts) { part in
+                ConversationPartView(part: part)
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+// MARK: - Conversation Part View
+
+struct ConversationPartView: View {
+    let part: MessagePart
+    
+    @State private var isExpanded: Bool = false
+    
+    var body: some View {
+        Group {
+            switch part.type {
+            case .text:
+                if let text = part.text, !text.isEmpty, part.synthetic != true {
+                    MarkdownText(text, color: .white.opacity(0.9), fontSize: 13)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                
+            case .tool:
+                ToolPartView(part: part, isExpanded: $isExpanded)
+                
+            case .reasoning:
+                if let text = part.text, !text.isEmpty {
+                    ReasoningPartView(text: text)
+                }
+                
+            case .file:
+                if let filename = part.filename ?? part.url {
+                    FilePartView(filename: filename, mime: part.mime)
+                }
+                
+            case .stepStart:
+                // Visual separator for steps
+                HStack(spacing: 4) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.1))
+                        .frame(height: 1)
+                    Text("Step")
+                        .font(.system(size: 9))
+                        .foregroundColor(.white.opacity(0.3))
+                    Rectangle()
+                        .fill(Color.white.opacity(0.1))
+                        .frame(height: 1)
+                }
+                .padding(.vertical, 4)
+                
+            case .stepFinish:
+                // Show token/cost info if available
+                if let tokens = part.tokens {
+                    StepFinishView(reason: part.reason, tokens: tokens, cost: part.cost)
+                }
+                
+            case .agent:
+                if let name = part.name {
+                    AgentPartView(name: name)
+                }
+                
+            case .subtask:
+                if let description = part.description {
+                    SubtaskPartView(description: description, agent: part.agent)
+                }
+                
+            case .retry:
+                if let attempt = part.attempt {
+                    RetryPartView(attempt: attempt, errorMessage: part.error?.data?.message)
+                }
+                
+            case .snapshot, .patch, .compaction, .unknown:
+                EmptyView()
+            }
+        }
+    }
+}
+
+// MARK: - Tool Part View
+
+struct ToolPartView: View {
+    let part: MessagePart
+    @Binding var isExpanded: Bool
+    
+    private var stateColor: Color {
+        guard let state = part.state else { return .gray }
+        if state.isRunning { return .orange }
+        if state.isCompleted { return .green }
+        if state.isError { return .red }
+        return .gray
+    }
+    
+    private var stateIcon: String {
+        guard let state = part.state else { return "circle" }
+        if state.isRunning { return "arrow.triangle.2.circlepath" }
+        if state.isCompleted { return "checkmark.circle.fill" }
+        if state.isError { return "exclamationmark.circle.fill" }
+        return "circle"
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Tool header
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    // Tool icon
+                    Image(systemName: part.toolIcon)
+                        .font(.system(size: 11))
+                        .foregroundColor(stateColor)
+                        .frame(width: 16)
+                    
+                    // Tool name
+                    Text(part.toolDisplayName)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.8))
+                    
+                    // Tool input summary (file path, command, etc.)
+                    if let summary = part.toolInputSummary {
+                        Text(summary)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.5))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    
+                    Spacer()
+                    
+                    // State indicator
+                    if let state = part.state, state.isRunning {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                            .frame(width: 12, height: 12)
+                    } else {
+                        Image(systemName: stateIcon)
+                            .font(.system(size: 10))
+                            .foregroundColor(stateColor)
+                    }
+                    
+                    // Expand chevron
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.white.opacity(0.05))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(stateColor.opacity(0.3), lineWidth: 1)
+                        )
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // Expanded content
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    // Show output if completed
+                    if let output = part.state?.output, !output.isEmpty {
+                        ToolOutputView(output: output, title: part.state?.title ?? "Output")
+                    }
+                    
+                    // Show error if failed
+                    if let error = part.state?.error, !error.isEmpty {
+                        ToolErrorView(error: error)
+                    }
+                }
+                .padding(.leading, 24)
+                .padding(.top, 6)
+            }
+        }
+    }
+}
+
+// MARK: - Tool Output View
+
+struct ToolOutputView: View {
+    let output: String
+    let title: String
+    
+    @State private var isFullyExpanded: Bool = false
+    
+    private var displayOutput: String {
+        if isFullyExpanded || output.count < 500 {
+            return output
+        }
+        return String(output.prefix(500)) + "..."
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.5))
+                
+                Spacer()
+                
+                if output.count > 500 {
+                    Button {
+                        isFullyExpanded.toggle()
+                    } label: {
+                        Text(isFullyExpanded ? "Show less" : "Show more")
+                            .font(.system(size: 10))
+                            .foregroundColor(.blue.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            
+            ScrollView(.vertical, showsIndicators: true) {
+                Text(displayOutput)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .frame(maxHeight: isFullyExpanded ? 300 : 100)
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.black.opacity(0.3))
+            )
+        }
+    }
+}
+
+// MARK: - Tool Error View
+
+struct ToolErrorView: View {
+    let error: String
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundColor(.red)
+            
+            Text(error)
+                .font(.system(size: 11))
+                .foregroundColor(.red.opacity(0.9))
+                .lineLimit(3)
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.red.opacity(0.1))
+        )
+    }
+}
+
+// MARK: - Reasoning Part View
+
+struct ReasoningPartView: View {
+    let text: String
+    
+    @State private var isExpanded: Bool = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 11))
+                        .foregroundColor(.purple.opacity(0.8))
+                    
+                    Text("Reasoning")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.purple.opacity(0.8))
+                    
+                    Spacer()
+                    
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.purple.opacity(0.1))
+                )
+            }
+            .buttonStyle(.plain)
+            
+            if isExpanded {
+                Text(text)
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.7))
+                    .italic()
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+            }
+        }
+    }
+}
+
+// MARK: - File Part View
+
+struct FilePartView: View {
+    let filename: String
+    let mime: String?
+    
+    private var icon: String {
+        guard let mime = mime else { return "doc" }
+        if mime.hasPrefix("image/") { return "photo" }
+        if mime.hasPrefix("video/") { return "video" }
+        if mime.hasPrefix("audio/") { return "waveform" }
+        if mime == "application/pdf" { return "doc.richtext" }
+        return "doc"
+    }
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundColor(.blue.opacity(0.8))
+            
+            Text(filename)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.7))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.blue.opacity(0.1))
+        )
+    }
+}
+
+// MARK: - Step Finish View
+
+struct StepFinishView: View {
+    let reason: String?
+    let tokens: MessagePart.PartTokens
+    let cost: Double?
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            if let input = tokens.input, let output = tokens.output {
+                Text("\(input) in / \(output) out tokens")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+            
+            if let cost = cost, cost > 0 {
+                Text(String(format: "$%.4f", cost))
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Agent Part View
+
+struct AgentPartView: View {
+    let name: String
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "person.2.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.cyan.opacity(0.8))
+            
+            Text("Agent: \(name)")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.cyan.opacity(0.8))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.cyan.opacity(0.1))
+        )
+    }
+}
+
+// MARK: - Subtask Part View
+
+struct SubtaskPartView: View {
+    let description: String
+    let agent: String?
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 11))
+                .foregroundColor(.orange.opacity(0.8))
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Subtask")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.orange.opacity(0.8))
+                
+                Text(description)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.7))
+                    .lineLimit(2)
+            }
+            
+            Spacer()
+            
+            if let agent = agent {
+                Text(agent)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.orange.opacity(0.1))
+        )
+    }
+}
+
+// MARK: - Retry Part View
+
+struct RetryPartView: View {
+    let attempt: Int
+    let errorMessage: String?
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 11))
+                .foregroundColor(.yellow.opacity(0.8))
+            
+            Text("Retry attempt \(attempt)")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.yellow.opacity(0.8))
+            
+            if let error = errorMessage {
+                Text("- \(error)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.5))
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.yellow.opacity(0.1))
+        )
     }
 }
 
@@ -988,30 +1503,67 @@ struct AudioLevelBar: View {
     let audioLevel: Float
     let isActive: Bool
     
-    // Calculate height based on position and audio level
-    private var barHeight: CGFloat {
+    @State private var animatedHeight: CGFloat = 3
+    @State private var animationPhase: Double = 0
+    
+    // Calculate target height with wave animation
+    private var targetHeight: CGFloat {
         guard isActive else { return 3 }
         
-        // Create a wave pattern - bars in the middle are taller
+        // Create a flowing wave pattern
         let center = CGFloat(barCount) / 2.0
         let distanceFromCenter = abs(CGFloat(index) - center) / center
-        let waveMultiplier = 1.0 - (distanceFromCenter * 0.5)
         
-        // Base height from audio level
-        let levelHeight = CGFloat(audioLevel) * 24 * waveMultiplier
+        // Wave that travels across the bars
+        let phase = animationPhase + Double(index) * 0.3
+        let wave = (sin(phase) + 1) / 2  // 0 to 1
         
-        // Add some randomness for natural look
-        let randomOffset = CGFloat.random(in: -2...2)
+        // Bars in middle are taller
+        let centerBoost = 1.0 - (distanceFromCenter * 0.4)
         
-        // Minimum height of 3, max of 24
-        return max(3, min(24, levelHeight + 3 + randomOffset))
+        // Calculate final height
+        let baseHeight: CGFloat = 6
+        let maxHeight: CGFloat = 22
+        let height = baseHeight + (maxHeight - baseHeight) * wave * centerBoost
+        
+        return height
     }
     
     var body: some View {
         RoundedRectangle(cornerRadius: 1)
-            .fill(isActive ? Color.red.opacity(0.7 + Double(audioLevel) * 0.3) : Color.orange.opacity(0.5))
-            .frame(width: 2, height: barHeight)
-            .animation(.easeOut(duration: 0.08), value: audioLevel)
+            .fill(isActive ? Color.red.opacity(0.8) : Color.orange.opacity(0.5))
+            .frame(width: 2, height: animatedHeight)
+            .onAppear {
+                if isActive {
+                    startAnimation()
+                }
+            }
+            .onChange(of: isActive) { _, active in
+                if active {
+                    startAnimation()
+                } else {
+                    animatedHeight = 3
+                }
+            }
+    }
+    
+    private func startAnimation() {
+        // Continuous wave animation
+        withAnimation(.linear(duration: 0.1)) {
+            animatedHeight = targetHeight
+        }
+        
+        // Update phase continuously
+        Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { timer in
+            if !isActive {
+                timer.invalidate()
+                return
+            }
+            animationPhase += 0.4
+            withAnimation(.easeInOut(duration: 0.08)) {
+                animatedHeight = targetHeight
+            }
+        }
     }
 }
 
