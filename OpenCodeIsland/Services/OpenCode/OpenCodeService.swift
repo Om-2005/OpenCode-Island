@@ -112,12 +112,11 @@ class OpenCodeService: ObservableObject {
             log("Checking for existing OpenCode server on port \(OpenCodeService.defaultPort)...")
             let existingServerClient = OpenCodeClient(port: OpenCodeService.defaultPort, hostname: "127.0.0.1")
             
-            if await existingServerClient.isServerRunning() {
+            // Use health() directly to avoid duplicate network request (isServerRunning calls health internally)
+            if let health = try? await existingServerClient.health() {
                 log("Found existing OpenCode server on port \(OpenCodeService.defaultPort)")
                 self.client = existingServerClient
                 
-                // Get health info from existing server
-                let health = try await client.health()
                 serverVersion = health.version
                 log("Existing server health OK, version: \(health.version)")
                 
