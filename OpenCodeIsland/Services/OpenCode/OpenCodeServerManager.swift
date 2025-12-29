@@ -87,9 +87,9 @@ class OpenCodeServerManager: ObservableObject {
         process.environment = environment
         
         // Handle process termination
-        process.terminationHandler = { [weak self] proc in
+        process.terminationHandler = { proc in
             Task { @MainActor in
-                self?.handleProcessTermination(exitCode: proc.terminationStatus)
+                OpenCodeServerManager.shared.handleProcessTermination(process: proc, exitCode: proc.terminationStatus)
             }
         }
         
@@ -140,16 +140,18 @@ class OpenCodeServerManager: ObservableObject {
         process.terminate()
         
         // Give it a moment to shut down gracefully
-        DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) { [weak self] in
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
             if process.isRunning {
                 print("[ServerManager] Server didn't stop gracefully, sending SIGKILL")
                 process.interrupt()
             }
             
             Task { @MainActor in
-                self?.serverProcess = nil
-                self?.isRunning = false
-                self?.serverPort = 0
+                let manager = OpenCodeServerManager.shared
+                guard manager.serverProcess === process else { return }
+                manager.serverProcess = nil
+                manager.isRunning = false
+                manager.serverPort = 0
             }
         }
     }
@@ -444,8 +446,10 @@ class OpenCodeServerManager: ObservableObject {
     }
     
     /// Handle server process termination
-    private func handleProcessTermination(exitCode: Int32) {
+    private func handleProcessTermination(process: Process, exitCode: Int32) {
         print("[ServerManager] Server process terminated with exit code: \(exitCode)")
+        
+        guard serverProcess === process else { return }
         
         serverProcess = nil
         isRunning = false

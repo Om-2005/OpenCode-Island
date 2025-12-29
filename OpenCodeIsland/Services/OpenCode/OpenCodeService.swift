@@ -64,17 +64,13 @@ class OpenCodeService: ObservableObject {
     // MARK: - Server Manager
     
     private let serverManager = OpenCodeServerManager.shared
-    
-    // MARK: - Constants
-    
-    private static let defaultPort = 4096
-    
+
     // MARK: - Initialization
     
     init() {
-        // Initialize with default port so pre-connect checks can work
-        self.client = OpenCodeClient(port: OpenCodeService.defaultPort, hostname: "127.0.0.1")
-        print("[OpenCodeService] Initialized with default port \(OpenCodeService.defaultPort)")
+        // Initialize with placeholder port; will be replaced when server starts
+        self.client = OpenCodeClient(port: 0, hostname: "127.0.0.1")
+        print("[OpenCodeService] Initialized, waiting for server to start")
     }
     
     deinit {
@@ -96,7 +92,7 @@ class OpenCodeService: ObservableObject {
         serverManager.isRunning ? serverManager.workingDirectory : nil
     }
     
-    /// Connect to the OpenCode server (tries existing server first, then starts new one)
+    /// Connect to the OpenCode server (always starts dedicated server instance)
     func connect() async {
         // Guard against duplicate connect attempts
         guard connectionState != .connecting else {
@@ -108,38 +104,11 @@ class OpenCodeService: ObservableObject {
         connectionState = .connecting
         
         do {
-            // First, try connecting to an existing server on the default port
-            log("Checking for existing OpenCode server on port \(OpenCodeService.defaultPort)...")
-            let existingServerClient = OpenCodeClient(port: OpenCodeService.defaultPort, hostname: "127.0.0.1")
-            
-            // Use health() directly to avoid duplicate network request (isServerRunning calls health internally)
-            if let health = try? await existingServerClient.health() {
-                log("Found existing OpenCode server on port \(OpenCodeService.defaultPort)")
-                self.client = existingServerClient
-                
-                serverVersion = health.version
-                log("Existing server health OK, version: \(health.version)")
-                
-                // Clear any old session
-                activeSessionID = nil
-                
-                // Load agents and providers
-                log("Loading agents...")
-                try await loadAgents()
-                log("Loaded \(agents.count) agents")
-                
-                log("Loading providers...")
-                try await loadProviders()
-                
-                connectionState = .connected
-                log("Connected to existing server!")
-                
-                // Start listening to events
-                startEventStream()
-                return
-            }
-            
-            log("No existing server found, starting our own...")
+            // NOTE: We intentionally do NOT try to reuse an existing server on port 4096.
+            // The OpenCode desktop app's web UI listens there and exposes health + sessions
+            // but does not return assistant message parts correctly, which causes Island
+            // to show empty assistant responses. We always start our own `opencode serve`.
+            log("Starting dedicated OpenCode server instance...")
             
             // Start our own server instance
             await serverManager.startServer()
